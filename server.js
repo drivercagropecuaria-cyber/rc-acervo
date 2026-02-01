@@ -1,6 +1,7 @@
 /**
- * RC Acervo v2.0 - Servidor Completo com Taxonomia
+ * RC Acervo v2.0 - Servidor Completo com Taxonomia EMBUTIDA
  * Sistema de Biblioteca de Fotos e Vídeos - RC Agropecuária
+ * VERSÃO CORRIGIDA - Taxonomia injetada no HTML (não depende de API)
  */
 
 const express = require('express');
@@ -500,34 +501,9 @@ app.post('/api/upload/complete', async (req, res) => {
     
     saveCatalogoItem(catalogoItem);
     
-    res.json({
-      success: true,
-      data: {
-        message: 'Arquivo catalogado com sucesso',
-        id: catalogoItem.id,
-        identificador: catalogoItem.identificador,
-        url: catalogoItem.arquivo.url
-      }
-    });
+    res.json({ success: true, data: catalogoItem });
   } catch (error) {
-    console.error('[Complete] Erro:', error.message);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.get('/api/upload/test', async (req, res) => {
-  try {
-    const auth = await authorizeB2();
-    res.json({
-      success: true,
-      message: 'Conexão com Backblaze B2 OK',
-      data: { 
-        apiUrl: auth.apiUrl, 
-        downloadUrl: auth.downloadUrl,
-        bucket: B2_CONFIG.bucketName 
-      }
-    });
-  } catch (error) {
+    console.error('[Upload Complete] Erro:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -538,43 +514,25 @@ app.get('/api/upload/test', async (req, res) => {
 
 app.get('/api/catalogo', (req, res) => {
   try {
+    const { area, nucleoPecuaria, tema, status, search, limit = 100 } = req.query;
     let itens = getAllCatalogo();
     
-    const { 
-      areaFazenda, nucleoPecuaria, nucleoAgro, 
-      temaPrincipal, status, search, 
-      page = 1, limit = 24 
-    } = req.query;
-    
-    if (areaFazenda) itens = itens.filter(m => m.areaFazenda === areaFazenda);
+    if (area) itens = itens.filter(m => m.areaFazenda === area);
     if (nucleoPecuaria) itens = itens.filter(m => m.nucleoPecuaria === nucleoPecuaria);
-    if (nucleoAgro) itens = itens.filter(m => m.nucleoAgro === nucleoAgro);
-    if (temaPrincipal) itens = itens.filter(m => m.temaPrincipal === temaPrincipal);
+    if (tema) itens = itens.filter(m => m.temaPrincipal === tema);
     if (status) itens = itens.filter(m => m.status === status);
-    
     if (search) {
-      const q = search.toLowerCase();
+      const term = search.toLowerCase();
       itens = itens.filter(m => 
-        m.titulo?.toLowerCase().includes(q) ||
-        m.areaFazenda?.toLowerCase().includes(q) ||
-        m.temaPrincipal?.toLowerCase().includes(q) ||
-        m.identificador?.toLowerCase().includes(q)
+        (m.titulo && m.titulo.toLowerCase().includes(term)) ||
+        (m.observacoes && m.observacoes.toLowerCase().includes(term)) ||
+        (m.identificador && m.identificador.toLowerCase().includes(term))
       );
     }
     
-    itens.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    itens = itens.slice(0, parseInt(limit));
     
-    const total = itens.length;
-    const start = (page - 1) * limit;
-    const paginated = itens.slice(start, start + parseInt(limit));
-    
-    res.json({ 
-      success: true, 
-      data: paginated, 
-      total,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / limit)
-    });
+    res.json({ success: true, data: itens, total: itens.length });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -592,7 +550,7 @@ app.get('/api/catalogo/:id', (req, res) => {
   }
 });
 
-app.put('/api/catalogo/:id', (req, res) => {
+app.patch('/api/catalogo/:id', (req, res) => {
   try {
     const item = getItemById(req.params.id);
     if (!item) {
@@ -717,14 +675,14 @@ app.get('/api/estatisticas/geral', (req, res) => {
 });
 
 // ============================================
-// FRONTEND
+// FRONTEND - VERSÃO CORRIGIDA COM TAXONOMIA EMBUTIDA
 // ============================================
 
-app.get('/', (req, res) => {
-  res.send(HTML_FRONTEND);
-});
-
-const HTML_FRONTEND = `<!DOCTYPE html>
+// Função que gera o HTML com a taxonomia já embutida
+function generateHTML() {
+  const taxonomiaJSON = JSON.stringify(TAXONOMIA);
+  
+  return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -837,6 +795,9 @@ const HTML_FRONTEND = `<!DOCTYPE html>
     }
     .upload-btn:hover { background: #c49a6a; }
     
+    .view { display: none; }
+    .view.active { display: block; }
+    
     .stats-grid { 
       display: grid; 
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
@@ -848,11 +809,6 @@ const HTML_FRONTEND = `<!DOCTYPE html>
       border: 1px solid rgba(212, 165, 116, 0.2); 
       border-radius: 12px; 
       padding: 20px;
-      transition: all 0.2s;
-    }
-    .stat-card:hover {
-      border-color: rgba(212, 165, 116, 0.4);
-      transform: translateY(-2px);
     }
     .stat-card h3 { font-size: 12px; color: rgba(245, 240, 230, 0.6); margin-bottom: 8px; text-transform: uppercase; }
     .stat-card .value { font-size: 32px; font-weight: 700; color: var(--rc-gold); }
@@ -883,10 +839,6 @@ const HTML_FRONTEND = `<!DOCTYPE html>
       color: var(--rc-cream); 
       font-size: 14px; 
     }
-    .filter-group select:focus, .filter-group input:focus {
-      outline: none;
-      border-color: var(--rc-gold);
-    }
     
     .media-grid { 
       display: grid; 
@@ -899,11 +851,6 @@ const HTML_FRONTEND = `<!DOCTYPE html>
       border-radius: 12px; 
       overflow: hidden; 
       cursor: pointer; 
-      transition: all 0.2s; 
-    }
-    .media-card:hover { 
-      border-color: rgba(212, 165, 116, 0.5); 
-      transform: translateY(-2px); 
     }
     .media-preview { 
       aspect-ratio: 4/3; 
@@ -913,11 +860,7 @@ const HTML_FRONTEND = `<!DOCTYPE html>
       justify-content: center; 
       position: relative; 
     }
-    .media-preview img { 
-      width: 100%; 
-      height: 100%; 
-      object-fit: cover; 
-    }
+    .media-preview img { width: 100%; height: 100%; object-fit: cover; }
     .media-preview .icon { font-size: 48px; }
     .media-status { 
       position: absolute; 
@@ -928,34 +871,12 @@ const HTML_FRONTEND = `<!DOCTYPE html>
       font-size: 10px; 
       font-weight: 600; 
       text-transform: uppercase;
+      background: rgba(251, 191, 36, 0.2); 
+      color: #fbbf24; 
     }
-    .status-ENT { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
-    .status-TRI { background: rgba(96, 165, 250, 0.2); color: #60a5fa; }
-    .status-CAT { background: rgba(74, 222, 128, 0.2); color: #4ade80; }
-    .status-SEL { background: rgba(167, 139, 250, 0.2); color: #a78bfa; }
-    .status-PRO { background: rgba(251, 146, 60, 0.2); color: #fb923c; }
     .media-info { padding: 15px; }
-    .media-info h4 { 
-      font-size: 14px; 
-      margin-bottom: 5px; 
-      white-space: nowrap; 
-      overflow: hidden; 
-      text-overflow: ellipsis; 
-    }
+    .media-info h4 { font-size: 14px; margin-bottom: 5px; }
     .media-info p { font-size: 12px; color: rgba(245, 240, 230, 0.6); }
-    .media-meta {
-      display: flex;
-      gap: 8px;
-      margin-top: 8px;
-      flex-wrap: wrap;
-    }
-    .media-tag {
-      font-size: 10px;
-      padding: 2px 8px;
-      background: rgba(212, 165, 116, 0.1);
-      border-radius: 10px;
-      color: rgba(245, 240, 230, 0.7);
-    }
     
     .modal-overlay { 
       position: fixed; 
@@ -965,7 +886,7 @@ const HTML_FRONTEND = `<!DOCTYPE html>
       align-items: center; 
       justify-content: center; 
       z-index: 1000; 
-      padding: 20px; 
+      padding: 20px;
     }
     .modal-overlay.active { display: flex; }
     .modal { 
@@ -975,196 +896,136 @@ const HTML_FRONTEND = `<!DOCTYPE html>
       width: 100%; 
       max-width: 900px; 
       max-height: 90vh; 
-      overflow: auto; 
+      overflow-y: auto; 
     }
     .modal-header { 
       padding: 20px; 
       border-bottom: 1px solid rgba(212, 165, 116, 0.2); 
       display: flex; 
-      align-items: center; 
       justify-content: space-between; 
+      align-items: center; 
     }
     .modal-header h2 { color: var(--rc-gold); font-size: 20px; }
     .modal-close { 
       background: none; 
       border: none; 
       color: var(--rc-cream); 
-      font-size: 28px; 
-      cursor: pointer;
-      width: 40px;
-      height: 40px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 8px;
-      transition: all 0.2s;
+      font-size: 24px; 
+      cursor: pointer; 
     }
-    .modal-close:hover { background: rgba(255, 255, 255, 0.1); }
     .modal-body { padding: 20px; }
     
     .drop-zone { 
-      border: 2px dashed rgba(212, 165, 116, 0.3); 
+      border: 2px dashed rgba(212, 165, 116, 0.4); 
       border-radius: 12px; 
-      padding: 50px; 
+      padding: 40px; 
       text-align: center; 
-      cursor: pointer; 
-      transition: all 0.2s; 
+      margin-bottom: 20px;
+      transition: all 0.2s;
     }
-    .drop-zone:hover { 
-      border-color: rgba(212, 165, 116, 0.6); 
-      background: rgba(212, 165, 116, 0.05); 
+    .drop-zone.dragover { 
+      border-color: var(--rc-gold); 
+      background: rgba(212, 165, 116, 0.1); 
     }
-    .drop-zone.dragover {
-      border-color: var(--rc-gold);
-      background: rgba(212, 165, 116, 0.1);
+    .drop-zone .icon { font-size: 48px; margin-bottom: 10px; }
+    .drop-zone p { color: rgba(245, 240, 230, 0.6); }
+    .file-selected { 
+      background: rgba(74, 222, 128, 0.1); 
+      border-color: var(--rc-success); 
     }
-    .drop-zone .icon { font-size: 48px; margin-bottom: 15px; }
-    .drop-zone h3 { margin-bottom: 10px; }
-    .drop-zone p { color: rgba(245, 240, 230, 0.6); font-size: 14px; }
     
+    .form-section { 
+      margin-bottom: 25px; 
+      padding: 20px; 
+      background: rgba(26, 77, 58, 0.2); 
+      border-radius: 12px; 
+    }
+    .form-section h3 { 
+      color: var(--rc-gold); 
+      font-size: 14px; 
+      margin-bottom: 15px; 
+      text-transform: uppercase; 
+    }
     .form-grid { 
       display: grid; 
-      grid-template-columns: repeat(2, 1fr); 
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); 
       gap: 15px; 
-      margin-top: 20px; 
     }
+    .form-group { display: flex; flex-direction: column; }
     .form-group.full-width { grid-column: 1 / -1; }
     .form-group label { 
-      display: block; 
       font-size: 12px; 
       color: rgba(245, 240, 230, 0.6); 
       margin-bottom: 5px; 
     }
-    .form-group label .required { color: var(--rc-gold); }
-    .form-group input,
-    .form-group select,
-    .form-group textarea { 
-      width: 100%; 
-      padding: 12px 15px; 
-      background: rgba(0, 0, 0, 0.3); 
+    .form-group input, .form-group select, .form-group textarea { 
+      padding: 10px 15px; 
+      background: var(--rc-dark); 
       border: 1px solid rgba(212, 165, 116, 0.3); 
       border-radius: 8px; 
       color: var(--rc-cream); 
-      font-size: 14px;
-      font-family: inherit;
+      font-size: 14px; 
     }
-    .form-group input:focus,
-    .form-group select:focus,
-    .form-group textarea:focus {
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
       outline: none;
       border-color: var(--rc-gold);
     }
-    .form-group textarea {
-      resize: vertical;
-      min-height: 80px;
-    }
     
-    .form-section {
-      margin-top: 25px;
-      padding-top: 20px;
-      border-top: 1px solid rgba(212, 165, 116, 0.2);
+    .form-actions { 
+      display: flex; 
+      gap: 10px; 
+      justify-content: flex-end; 
+      padding-top: 20px; 
+      border-top: 1px solid rgba(212, 165, 116, 0.2); 
     }
-    .form-section h3 {
-      color: var(--rc-gold);
-      font-size: 14px;
-      margin-bottom: 15px;
-      text-transform: uppercase;
+    .btn { 
+      padding: 12px 24px; 
+      border-radius: 8px; 
+      font-size: 14px; 
+      font-weight: 600; 
+      cursor: pointer; 
+      transition: all 0.2s; 
     }
+    .btn-primary { 
+      background: var(--rc-gold); 
+      color: var(--rc-dark); 
+      border: none; 
+    }
+    .btn-primary:hover { background: #c49a6a; }
+    .btn-secondary { 
+      background: transparent; 
+      color: var(--rc-cream); 
+      border: 1px solid rgba(212, 165, 116, 0.3); 
+    }
+    .btn-secondary:hover { background: rgba(212, 165, 116, 0.1); }
     
-    .file-preview {
-      background: rgba(0, 0, 0, 0.3);
-      border-radius: 12px;
-      padding: 15px;
-      margin-top: 15px;
-      display: flex;
-      align-items: center;
-      gap: 15px;
-    }
-    .file-preview .icon { font-size: 40px; }
-    .file-preview .info { flex: 1; }
-    .file-preview .info h4 { margin-bottom: 5px; }
-    .file-preview .info p { font-size: 12px; color: rgba(245, 240, 230, 0.6); }
-    .file-preview .remove {
-      background: rgba(239, 68, 68, 0.2);
-      border: none;
-      color: var(--rc-danger);
-      padding: 8px 12px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 12px;
-    }
-    
-    .form-actions {
-      display: flex;
-      gap: 15px;
-      justify-content: flex-end;
-      margin-top: 30px;
-      padding-top: 20px;
-      border-top: 1px solid rgba(212, 165, 116, 0.2);
-    }
-    .btn {
-      padding: 12px 30px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s;
-      border: none;
-    }
-    .btn-secondary {
-      background: transparent;
-      border: 1px solid rgba(212, 165, 116, 0.3);
-      color: var(--rc-cream);
-    }
-    .btn-secondary:hover {
-      border-color: rgba(212, 165, 116, 0.6);
-      background: rgba(212, 165, 116, 0.1);
-    }
-    .btn-primary {
-      background: var(--rc-gold);
-      color: var(--rc-dark);
-    }
-    .btn-primary:hover {
-      background: #c49a6a;
-    }
-    .btn-primary:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-    
-    .loading {
-      display: inline-block;
-      width: 20px;
-      height: 20px;
-      border: 2px solid rgba(212, 165, 116, 0.3);
-      border-top-color: var(--rc-gold);
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    
-    .toast {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      padding: 15px 25px;
-      border-radius: 8px;
-      font-size: 14px;
+    .toast { 
+      position: fixed; 
+      bottom: 20px; 
+      right: 20px; 
+      padding: 15px 25px; 
+      border-radius: 8px; 
+      color: white; 
+      font-weight: 500; 
       z-index: 2000;
       animation: slideIn 0.3s ease;
     }
-    @keyframes slideIn {
-      from { transform: translateX(100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
+    .toast-success { background: var(--rc-success); color: var(--rc-dark); }
+    .toast-error { background: var(--rc-danger); }
+    @keyframes slideIn { 
+      from { transform: translateX(100%); opacity: 0; } 
+      to { transform: translateX(0); opacity: 1; } 
     }
-    .toast-success { background: rgba(74, 222, 128, 0.9); color: #064e3b; }
-    .toast-error { background: rgba(239, 68, 68, 0.9); color: #fef2f2; }
     
-    @media (max-width: 768px) {
-      .form-grid { grid-template-columns: 1fr; }
-      .stats-grid { grid-template-columns: repeat(2, 1fr); }
-      .media-grid { grid-template-columns: repeat(2, 1fr); }
-      .header-content { flex-direction: column; gap: 15px; }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: rgba(245, 240, 230, 0.5);
+    }
+    .empty-state .icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+      opacity: 0.5;
     }
   </style>
 </head>
@@ -1179,7 +1040,7 @@ const HTML_FRONTEND = `<!DOCTYPE html>
         </div>
       </div>
       <div class="server-status">
-        <span class="status-dot status-checking" id="statusDot"></span>
+        <span class="status-dot" id="statusDot"></span>
         <span id="statusText">Verificando...</span>
       </div>
     </div>
@@ -1195,11 +1056,28 @@ const HTML_FRONTEND = `<!DOCTYPE html>
       </button>
     </nav>
 
-    <div id="dashboardView" class="view">
-      <div class="stats-grid" id="dashboardStats"></div>
+    <div id="dashboardView" class="view active">
+      <div class="stats-grid" id="dashboardStats">
+        <div class="stat-card">
+          <h3>Total de Itens</h3>
+          <div class="value">-</div>
+        </div>
+        <div class="stat-card">
+          <h3>Espaço Utilizado</h3>
+          <div class="value">-</div>
+        </div>
+        <div class="stat-card">
+          <h3>Catalogados</h3>
+          <div class="value">-</div>
+        </div>
+        <div class="stat-card">
+          <h3>Em Produção</h3>
+          <div class="value">-</div>
+        </div>
+      </div>
     </div>
 
-    <div id="catalogoView" class="view" style="display:none;">
+    <div id="catalogoView" class="view">
       <div class="filters">
         <div class="filter-group">
           <label>Área/Fazenda</label>
@@ -1214,7 +1092,7 @@ const HTML_FRONTEND = `<!DOCTYPE html>
           </select>
         </div>
         <div class="filter-group">
-          <label>Tema Principal</label>
+          <label>Tema</label>
           <select id="filterTema" onchange="applyFilters()">
             <option value="">Todos</option>
           </select>
@@ -1227,64 +1105,71 @@ const HTML_FRONTEND = `<!DOCTYPE html>
         </div>
         <div class="filter-group">
           <label>Buscar</label>
-          <input type="text" id="filterSearch" placeholder="Título, área, tema..." onkeyup="applyFilters()">
+          <input type="text" id="filterSearch" placeholder="Título, ID..." oninput="applyFilters()">
         </div>
       </div>
-      <div class="media-grid" id="catalogoGrid"></div>
+      <div class="media-grid" id="catalogoGrid">
+        <div class="empty-state">
+          <div class="icon">📁</div>
+          <p>Carregando catálogo...</p>
+        </div>
+      </div>
     </div>
 
-    <div id="estatisticasView" class="view" style="display:none;">
-      <div class="stats-grid" id="estatisticasDetalhadas"></div>
+    <div id="estatisticasView" class="view">
+      <div class="stats-grid" id="estatisticasDetalhadas">
+        <div class="stat-card">
+          <h3>Carregando...</h3>
+          <div class="value">-</div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div class="modal-overlay" id="uploadModal">
+  <div class="modal-overlay" id="uploadModal" onclick="closeUploadModalOnOverlay(event)">
     <div class="modal">
       <div class="modal-header">
         <h2>Novo Upload</h2>
         <button class="modal-close" onclick="closeUploadModal()">&times;</button>
       </div>
       <div class="modal-body">
-        <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
-          <div class="icon">📁</div>
-          <h3>Arraste arquivos aqui</h3>
-          <p>ou clique para selecionar<br>Suporta: JPG, PNG, MP4, MOV (máx 2GB)</p>
-          <input type="file" id="fileInput" style="display:none" accept="image/*,video/*" onchange="handleFileSelect(event)">
-        </div>
-        
-        <div id="filePreview" style="display:none;"></div>
-        
-        <form id="uploadForm" style="display:none;">
+        <form id="uploadForm">
+          <div class="drop-zone" id="dropZone">
+            <div class="icon">📁</div>
+            <p>Arraste arquivos aqui ou clique para selecionar</p>
+            <input type="file" id="fileInput" accept="image/*,video/*" style="display:none">
+          </div>
+          
           <div class="form-section">
             <h3>Informações Básicas</h3>
             <div class="form-grid">
-              <div class="form-group full-width">
-                <label>Título <span class="required">*</span></label>
-                <input type="text" id="titulo" required placeholder="Ex: Nascimento de bezerro - Maternidade">
+              <div class="form-group">
+                <label>Título *</label>
+                <input type="text" id="titulo" required placeholder="Nome do arquivo">
               </div>
               <div class="form-group">
-                <label>Data da Captação <span class="required">*</span></label>
+                <label>Data de Captação *</label>
                 <input type="date" id="dataCaptacao" required>
               </div>
               <div class="form-group">
                 <label>Responsável</label>
-                <input type="text" id="responsavel" placeholder="Nome do cinegrafista/operador">
+                <input type="text" id="responsavel" placeholder="Nome do fotógrafo/filmaker">
               </div>
-            </div>
-          </div>
-          
-          <div class="form-section">
-            <h3>Classificação Geográfica</h3>
-            <div class="form-grid">
               <div class="form-group">
-                <label>Área / Fazenda <span class="required">*</span></label>
+                <label>Área/Fazenda *</label>
                 <select id="areaFazenda" required>
                   <option value="">Selecione...</option>
                 </select>
               </div>
               <div class="form-group">
-                <label>Ponto <span class="required">*</span></label>
-                <select id="ponto" required>
+                <label>Ponto de Captação</label>
+                <select id="ponto">
+                  <option value="">Selecione...</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Tipo de Projeto</label>
+                <select id="tipoProjeto">
                   <option value="">Selecione...</option>
                 </select>
               </div>
@@ -1292,22 +1177,10 @@ const HTML_FRONTEND = `<!DOCTYPE html>
           </div>
           
           <div class="form-section">
-            <h3>Tipo de Projeto</h3>
-            <div class="form-grid">
-              <div class="form-group full-width">
-                <label>Tipo de Projeto de Captação <span class="required">*</span></label>
-                <select id="tipoProjeto" required>
-                  <option value="">Selecione...</option>
-                </select>
-              </div>
-            </div>
-          </div>
-          
-          <div class="form-section">
-            <h3>Núcleos (selecione pelo menos um)</h3>
+            <h3>Classificação - Pecuária</h3>
             <div class="form-grid">
               <div class="form-group">
-                <label>Núcleo da Pecuária</label>
+                <label>Núcleo Pecuária</label>
                 <select id="nucleoPecuaria" onchange="updateSubnucleos('pecuaria')">
                   <option value="">Selecione...</option>
                 </select>
@@ -1315,11 +1188,17 @@ const HTML_FRONTEND = `<!DOCTYPE html>
               <div class="form-group">
                 <label>Subnúcleo Pecuária</label>
                 <select id="subnucleoPecuaria">
-                  <option value="">Selecione o núcleo primeiro...</option>
+                  <option value="">Selecione...</option>
                 </select>
               </div>
+            </div>
+          </div>
+          
+          <div class="form-section">
+            <h3>Classificação - Agro</h3>
+            <div class="form-grid">
               <div class="form-group">
-                <label>Núcleo do Agro</label>
+                <label>Núcleo Agro</label>
                 <select id="nucleoAgro" onchange="updateSubnucleos('agro')">
                   <option value="">Selecione...</option>
                 </select>
@@ -1327,33 +1206,27 @@ const HTML_FRONTEND = `<!DOCTYPE html>
               <div class="form-group">
                 <label>Subnúcleo Agro</label>
                 <select id="subnucleoAgro">
-                  <option value="">Selecione o núcleo primeiro...</option>
+                  <option value="">Selecione...</option>
                 </select>
               </div>
             </div>
           </div>
           
           <div class="form-section">
-            <h3>Classificação Temática</h3>
+            <h3>Temas e Contexto</h3>
             <div class="form-grid">
               <div class="form-group">
-                <label>Tema Principal <span class="required">*</span></label>
+                <label>Tema Principal *</label>
                 <select id="temaPrincipal" required onchange="updateTemasSecundarios()">
                   <option value="">Selecione...</option>
                 </select>
               </div>
               <div class="form-group">
-                <label>Tema Secundário <span class="required">*</span></label>
-                <select id="temaSecundario" required>
-                  <option value="">Selecione o tema principal primeiro...</option>
+                <label>Tema Secundário</label>
+                <select id="temaSecundario">
+                  <option value="">Selecione...</option>
                 </select>
               </div>
-            </div>
-          </div>
-          
-          <div class="form-section">
-            <h3>Contexto Narrativo</h3>
-            <div class="form-grid">
               <div class="form-group">
                 <label>Evento Principal</label>
                 <select id="eventoPrincipal">
@@ -1372,29 +1245,17 @@ const HTML_FRONTEND = `<!DOCTYPE html>
                   <option value="A definir">A definir</option>
                 </select>
               </div>
-              <div class="form-group full-width">
-                <label>Frase-memória (1 linha)</label>
-                <input type="text" id="fraseMemoria" maxlength="150" placeholder="Uma frase que capture a essência do momento">
-              </div>
-            </div>
-          </div>
-          
-          <div class="form-section">
-            <h3>Status e Workflow</h3>
-            <div class="form-grid">
               <div class="form-group">
-                <label>Status <span class="required">*</span></label>
-                <select id="status" required>
+                <label>Status</label>
+                <select id="status">
                   <option value="Entrada (Bruto)">Entrada (Bruto)</option>
-                  <option value="Em triagem">Em triagem</option>
-                  <option value="Catalogado">Catalogado</option>
                 </select>
               </div>
             </div>
           </div>
           
           <div class="form-section">
-            <h3>Links Externos</h3>
+            <h3>Links e Referências</h3>
             <div class="form-grid">
               <div class="form-group">
                 <label>Link Drive</label>
@@ -1430,135 +1291,109 @@ const HTML_FRONTEND = `<!DOCTYPE html>
   </div>
 
   <script>
-    let taxonomia = null;
+    // TAXONOMIA EMBUTIDA - Carregada imediatamente sem API
+    const TAXONOMIA = ${taxonomiaJSON};
+    
     let currentFile = null;
     let isUploading = false;
     
-    document.addEventListener('DOMContentLoaded', async () => {
-      checkServerStatus();
-      await loadTaxonomia();
+    // Inicialização imediata - não depende de API
+    document.addEventListener('DOMContentLoaded', () => {
+      // Mostrar status online imediatamente
+      document.getElementById('statusDot').className = 'status-dot status-online';
+      document.getElementById('statusText').textContent = 'Online';
+      
+      // Popular selects com taxonomia embutida
       populateFilters();
       populateFormSelects();
+      
+      // Carregar dados
       loadDashboardStats();
       loadCatalogo();
+      
+      // Setup eventos
       setupDragAndDrop();
       document.getElementById('uploadForm').addEventListener('submit', handleFormSubmit);
       document.getElementById('dataCaptacao').valueAsDate = new Date();
     });
     
-    async function checkServerStatus() {
-      try {
-        const response = await fetch('/api/health');
-        const data = await response.json();
-        const dot = document.getElementById('statusDot');
-        const text = document.getElementById('statusText');
-        
-        if (data.success) {
-          dot.className = 'status-dot status-online';
-          text.textContent = 'Online';
-        } else {
-          dot.className = 'status-dot status-offline';
-          text.textContent = 'Offline';
-        }
-      } catch (error) {
-        document.getElementById('statusDot').className = 'status-dot status-offline';
-        document.getElementById('statusText').textContent = 'Offline';
-      }
-    }
-    
-    async function loadTaxonomia() {
-      try {
-        const response = await fetch('/api/taxonomia/completa');
-        const data = await response.json();
-        if (data.success) taxonomia = data.data;
-      } catch (error) {
-        console.error('Erro ao carregar taxonomia:', error);
-      }
-    }
-    
     function populateFilters() {
-      if (!taxonomia) return;
-      
       const areaSelect = document.getElementById('filterArea');
-      taxonomia.areasFazendas.forEach(area => {
+      TAXONOMIA.areasFazendas.forEach(area => {
         areaSelect.innerHTML += '<option value="' + area.nome + '">' + area.nome + '</option>';
       });
       
       const nucleoSelect = document.getElementById('filterNucleoPecuaria');
-      Object.keys(taxonomia.nucleosPecuaria).forEach(nucleo => {
+      Object.keys(TAXONOMIA.nucleosPecuaria).forEach(nucleo => {
         nucleoSelect.innerHTML += '<option value="' + nucleo + '">' + nucleo + '</option>';
       });
       
       const temaSelect = document.getElementById('filterTema');
-      taxonomia.temasPrincipais.forEach(tema => {
+      TAXONOMIA.temasPrincipais.forEach(tema => {
         temaSelect.innerHTML += '<option value="' + tema + '">' + tema + '</option>';
       });
       
       const statusSelect = document.getElementById('filterStatus');
-      taxonomia.status.forEach(status => {
+      TAXONOMIA.status.forEach(status => {
         statusSelect.innerHTML += '<option value="' + status.nome + '">' + status.nome + '</option>';
       });
     }
     
     function populateFormSelects() {
-      if (!taxonomia) return;
-      
       const areaSelect = document.getElementById('areaFazenda');
-      taxonomia.areasFazendas.forEach(area => {
+      TAXONOMIA.areasFazendas.forEach(area => {
         areaSelect.innerHTML += '<option value="' + area.nome + '">' + area.nome + '</option>';
       });
       
       const pontoSelect = document.getElementById('ponto');
-      taxonomia.pontos.forEach(ponto => {
+      TAXONOMIA.pontos.forEach(ponto => {
         pontoSelect.innerHTML += '<option value="' + ponto.nome + '">' + ponto.nome + '</option>';
       });
       
       const tipoSelect = document.getElementById('tipoProjeto');
-      taxonomia.tiposProjeto.forEach(tipo => {
+      TAXONOMIA.tiposProjeto.forEach(tipo => {
         tipoSelect.innerHTML += '<option value="' + tipo.nome + '">' + tipo.nome + '</option>';
       });
       
       const nucleoPecSelect = document.getElementById('nucleoPecuaria');
-      Object.keys(taxonomia.nucleosPecuaria).forEach(nucleo => {
+      Object.keys(TAXONOMIA.nucleosPecuaria).forEach(nucleo => {
         nucleoPecSelect.innerHTML += '<option value="' + nucleo + '">' + nucleo + '</option>';
       });
       
       const nucleoAgroSelect = document.getElementById('nucleoAgro');
-      Object.keys(taxonomia.nucleosAgro).forEach(nucleo => {
+      Object.keys(TAXONOMIA.nucleosAgro).forEach(nucleo => {
         nucleoAgroSelect.innerHTML += '<option value="' + nucleo + '">' + nucleo + '</option>';
       });
       
       const temaSelect = document.getElementById('temaPrincipal');
-      taxonomia.temasPrincipais.forEach(tema => {
+      TAXONOMIA.temasPrincipais.forEach(tema => {
         temaSelect.innerHTML += '<option value="' + tema + '">' + tema + '</option>';
       });
       
       const eventoSelect = document.getElementById('eventoPrincipal');
-      taxonomia.eventos.forEach(evento => {
+      TAXONOMIA.eventos.forEach(evento => {
         eventoSelect.innerHTML += '<option value="' + evento.nome + '">' + evento.nome + '</option>';
       });
       
       const funcaoSelect = document.getElementById('funcaoHistorica');
-      taxonomia.funcoesHistoricas.forEach(funcao => {
+      TAXONOMIA.funcoesHistoricas.forEach(funcao => {
         funcaoSelect.innerHTML += '<option value="' + funcao.nome + '">' + funcao.nome + '</option>';
       });
       
       const capSelect = document.getElementById('capituloFilme');
-      taxonomia.capitulos.forEach(cap => {
+      TAXONOMIA.capitulos.forEach(cap => {
         capSelect.innerHTML += '<option value="' + cap.nome + '">' + cap.nome + '</option>';
       });
     }
     
     function updateSubnucleos(tipo) {
-      if (!taxonomia) return;
-      
       if (tipo === 'pecuaria') {
         const nucleo = document.getElementById('nucleoPecuaria').value;
         const subSelect = document.getElementById('subnucleoPecuaria');
         subSelect.innerHTML = '<option value="">Selecione...</option>';
         
-        if (nucleo && taxonomia.nucleosPecuaria[nucleo]) {
-          taxonomia.nucleosPecuaria[nucleo].forEach(sub => {
+        if (nucleo && TAXONOMIA.nucleosPecuaria[nucleo]) {
+          TAXONOMIA.nucleosPecuaria[nucleo].forEach(sub => {
             subSelect.innerHTML += '<option value="' + sub + '">' + sub + '</option>';
           });
         }
@@ -1567,8 +1402,8 @@ const HTML_FRONTEND = `<!DOCTYPE html>
         const subSelect = document.getElementById('subnucleoAgro');
         subSelect.innerHTML = '<option value="">Selecione...</option>';
         
-        if (nucleo && taxonomia.nucleosAgro[nucleo]) {
-          taxonomia.nucleosAgro[nucleo].forEach(sub => {
+        if (nucleo && TAXONOMIA.nucleosAgro[nucleo]) {
+          TAXONOMIA.nucleosAgro[nucleo].forEach(sub => {
             subSelect.innerHTML += '<option value="' + sub + '">' + sub + '</option>';
           });
         }
@@ -1576,14 +1411,12 @@ const HTML_FRONTEND = `<!DOCTYPE html>
     }
     
     function updateTemasSecundarios() {
-      if (!taxonomia) return;
-      
       const tema = document.getElementById('temaPrincipal').value;
       const subSelect = document.getElementById('temaSecundario');
       subSelect.innerHTML = '<option value="">Selecione...</option>';
       
-      if (tema && taxonomia.temasSecundarios[tema]) {
-        taxonomia.temasSecundarios[tema].forEach(sub => {
+      if (tema && TAXONOMIA.temasSecundarios[tema]) {
+        TAXONOMIA.temasSecundarios[tema].forEach(sub => {
           subSelect.innerHTML += '<option value="' + sub + '">' + sub + '</option>';
         });
       }
@@ -1627,6 +1460,8 @@ const HTML_FRONTEND = `<!DOCTYPE html>
         if (data.success) renderCatalogo(data.data);
       } catch (error) {
         console.error('Erro ao carregar catálogo:', error);
+        document.getElementById('catalogoGrid').innerHTML = 
+          '<div class="empty-state"><div class="icon">⚠️</div><p>Erro ao carregar catálogo</p></div>';
       }
     }
     
@@ -1634,7 +1469,7 @@ const HTML_FRONTEND = `<!DOCTYPE html>
       const grid = document.getElementById('catalogoGrid');
       
       if (itens.length === 0) {
-        grid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; padding: 40px; color: rgba(245,240,230,0.5);">Nenhum item no catálogo</p>';
+        grid.innerHTML = '<div class="empty-state"><div class="icon">📁</div><p>Nenhum item no catálogo</p><p style="font-size: 12px; margin-top: 10px;">Clique em "Novo Upload" para adicionar</p></div>';
         return;
       }
       
@@ -1643,44 +1478,19 @@ const HTML_FRONTEND = `<!DOCTYPE html>
         
         return '<div class="media-card" onclick="viewItem(\'' + item.id + '\')">' +
           '<div class="media-preview">' +
-            (item.arquivo?.tipo === 'imagem' ? '<img src="' + item.arquivo.url + '" alt="' + item.titulo + '" loading="lazy">' : '<div class="icon">🎬</div>') +
-            '<span class="media-status status-' + statusAbrev + '">' + item.status + '</span>' +
+          (item.arquivo?.tipo === 'imagem' ? '<img src="' + item.arquivo.url + '" alt="' + item.titulo + '" loading="lazy">' : '<div class="icon">🎬</div>') +
+          '<span class="media-status">' + statusAbrev + '</span>' +
           '</div>' +
           '<div class="media-info">' +
-            '<h4>' + (item.titulo || 'Sem título') + '</h4>' +
-            '<p>' + (item.areaFazenda || '') + ' · ' + (item.temaPrincipal || '') + '</p>' +
-            '<div class="media-meta">' +
-              '<span class="media-tag">' + (item.arquivo?.formato || '') + '</span>' +
-              '<span class="media-tag">' + (item.arquivo?.tamanhoFormatado || '') + '</span>' +
-            '</div>' +
+          '<h4>' + (item.titulo || 'Sem título') + '</h4>' +
+          '<p>' + (item.areaFazenda || '-') + ' · ' + (item.temaPrincipal || '-') + '</p>' +
           '</div>' +
-        '</div>';
+          '</div>';
       }).join('');
     }
     
-    async function applyFilters() {
-      const params = new URLSearchParams();
-      
-      const area = document.getElementById('filterArea').value;
-      const nucleo = document.getElementById('filterNucleoPecuaria').value;
-      const tema = document.getElementById('filterTema').value;
-      const status = document.getElementById('filterStatus').value;
-      const search = document.getElementById('filterSearch').value;
-      
-      if (area) params.append('areaFazenda', area);
-      if (nucleo) params.append('nucleoPecuaria', nucleo);
-      if (tema) params.append('temaPrincipal', tema);
-      if (status) params.append('status', status);
-      if (search) params.append('search', search);
-      
-      try {
-        const response = await fetch('/api/catalogo?' + params.toString());
-        const data = await response.json();
-        
-        if (data.success) renderCatalogo(data.data);
-      } catch (error) {
-        console.error('Erro ao aplicar filtros:', error);
-      }
+    function applyFilters() {
+      loadCatalogo();
     }
     
     function openUploadModal() {
@@ -1691,21 +1501,29 @@ const HTML_FRONTEND = `<!DOCTYPE html>
     function closeUploadModal() {
       document.getElementById('uploadModal').classList.remove('active');
       document.body.style.overflow = '';
-      resetUploadForm();
+      document.getElementById('uploadForm').reset();
+      document.getElementById('dropZone').classList.remove('file-selected');
+      document.getElementById('dropZone').innerHTML = '<div class="icon">📁</div><p>Arraste arquivos aqui ou clique para selecionar</p>';
+      currentFile = null;
     }
     
-    function resetUploadForm() {
-      currentFile = null;
-      document.getElementById('fileInput').value = '';
-      document.getElementById('dropZone').style.display = 'block';
-      document.getElementById('filePreview').style.display = 'none';
-      document.getElementById('uploadForm').style.display = 'none';
-      document.getElementById('uploadForm').reset();
-      document.getElementById('dataCaptacao').valueAsDate = new Date();
+    function closeUploadModalOnOverlay(event) {
+      if (event.target === document.getElementById('uploadModal')) {
+        closeUploadModal();
+      }
     }
     
     function setupDragAndDrop() {
       const dropZone = document.getElementById('dropZone');
+      const fileInput = document.getElementById('fileInput');
+      
+      dropZone.addEventListener('click', () => fileInput.click());
+      
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+          handleFileSelect(e.target.files[0]);
+        }
+      });
       
       dropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
@@ -1719,46 +1537,23 @@ const HTML_FRONTEND = `<!DOCTYPE html>
       dropZone.addEventListener('drop', (e) => {
         e.preventDefault();
         dropZone.classList.remove('dragover');
-        
-        const files = e.dataTransfer.files;
-        if (files.length > 0) handleFile(files[0]);
+        if (e.dataTransfer.files.length > 0) {
+          handleFileSelect(e.dataTransfer.files[0]);
+        }
       });
     }
     
-    function handleFileSelect(event) {
-      const file = event.target.files[0];
-      if (file) handleFile(file);
-    }
-    
-    function handleFile(file) {
+    function handleFileSelect(file) {
       currentFile = file;
+      const dropZone = document.getElementById('dropZone');
+      dropZone.classList.add('file-selected');
+      dropZone.innerHTML = '<div class="icon">✅</div><p><strong>' + file.name + '</strong></p><p>' + formatFileSize(file.size) + '</p>';
       
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'video/mp4', 'video/quicktime'];
-      if (!allowedTypes.includes(file.type)) {
-        showToast('Tipo de arquivo não suportado', 'error');
-        return;
+      // Preencher título automaticamente
+      const tituloInput = document.getElementById('titulo');
+      if (!tituloInput.value) {
+        tituloInput.value = file.name.replace(/\.[^/.]+$/, '');
       }
-      
-      if (file.size > 2 * 1024 * 1024 * 1024) {
-        showToast('Arquivo muito grande (máx 2GB)', 'error');
-        return;
-      }
-      
-      document.getElementById('dropZone').style.display = 'none';
-      document.getElementById('filePreview').style.display = 'block';
-      document.getElementById('uploadForm').style.display = 'block';
-      
-      const sizeFormatted = formatFileSize(file.size);
-      const icon = file.type.startsWith('image/') ? '🖼️' : '🎬';
-      
-      document.getElementById('filePreview').innerHTML = 
-        '<div class="file-preview">' +
-          '<div class="icon">' + icon + '</div>' +
-          '<div class="info"><h4>' + file.name + '</h4><p>' + sizeFormatted + ' · ' + file.type + '</p></div>' +
-          '<button type="button" class="remove" onclick="resetUploadForm()">Remover</button>' +
-        '</div>';
-      
-      document.getElementById('titulo').value = file.name.split('.')[0];
     }
     
     function formatFileSize(bytes) {
@@ -1769,15 +1564,18 @@ const HTML_FRONTEND = `<!DOCTYPE html>
       return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
     
-    async function handleFormSubmit(event) {
-      event.preventDefault();
+    async function handleFormSubmit(e) {
+      e.preventDefault();
       
-      if (!currentFile || isUploading) return;
+      if (!currentFile) {
+        showToast('Selecione um arquivo primeiro', 'error');
+        return;
+      }
       
-      isUploading = true;
       const submitBtn = document.getElementById('submitBtn');
       submitBtn.disabled = true;
-      submitBtn.innerHTML = '<span class="loading"></span> Enviando...';
+      submitBtn.innerHTML = 'Enviando...';
+      isUploading = true;
       
       try {
         const metadata = {
@@ -1787,16 +1585,15 @@ const HTML_FRONTEND = `<!DOCTYPE html>
           areaFazenda: document.getElementById('areaFazenda').value,
           ponto: document.getElementById('ponto').value,
           tipoProjeto: document.getElementById('tipoProjeto').value,
-          nucleoPecuaria: document.getElementById('nucleoPecuaria').value || null,
-          subnucleoPecuaria: document.getElementById('subnucleoPecuaria').value || null,
-          nucleoAgro: document.getElementById('nucleoAgro').value || null,
-          subnucleoAgro: document.getElementById('subnucleoAgro').value || null,
+          nucleoPecuaria: document.getElementById('nucleoPecuaria').value,
+          subnucleoPecuaria: document.getElementById('subnucleoPecuaria').value,
+          nucleoAgro: document.getElementById('nucleoAgro').value,
+          subnucleoAgro: document.getElementById('subnucleoAgro').value,
           temaPrincipal: document.getElementById('temaPrincipal').value,
           temaSecundario: document.getElementById('temaSecundario').value,
-          eventoPrincipal: document.getElementById('eventoPrincipal').value || null,
-          funcaoHistorica: document.getElementById('funcaoHistorica').value || null,
+          eventoPrincipal: document.getElementById('eventoPrincipal').value,
+          funcaoHistorica: document.getElementById('funcaoHistorica').value,
           capituloFilme: document.getElementById('capituloFilme').value,
-          fraseMemoria: document.getElementById('fraseMemoria').value,
           status: document.getElementById('status').value,
           linkDrive: document.getElementById('linkDrive').value,
           linkFrameio: document.getElementById('linkFrameio').value,
@@ -1903,6 +1700,15 @@ const HTML_FRONTEND = `<!DOCTYPE html>
   </script>
 </body>
 </html>`;
+}
+
+// ============================================
+// ROTA PRINCIPAL - SERVIR FRONTEND COM TAXONOMIA EMBUTIDA
+// ============================================
+
+app.get('/', (req, res) => {
+  res.send(generateHTML());
+});
 
 // ============================================
 // INICIAR SERVIDOR
@@ -1912,6 +1718,7 @@ app.listen(PORT, () => {
   console.log('='.repeat(60));
   console.log('  RC ACERVO v2.0 - Casa de Memória Digital');
   console.log('  RC Agropecuária');
+  console.log('  VERSÃO CORRIGIDA - Taxonomia Embutida');
   console.log('='.repeat(60));
   console.log(`  Servidor rodando na porta ${PORT}`);
   console.log(`  Ambiente: ${process.env.NODE_ENV || 'development'}`);
