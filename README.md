@@ -111,6 +111,8 @@ Em produção → Em aprovação → Aprovado → Publicado → Arquivado
 - **Frontend:** HTML5 + CSS3 + Vanilla JS
 - **Database:** JSON file (persistido em /tmp no Render)
 
+Última atualização: 01/02/2026
+
 ---
 
 ## 📄 Licença
